@@ -42,19 +42,29 @@ fn get_current_media() -> Option<MediaInfo> {
 
     // Ambil posisi dan durasi untuk progress bar Discord
     let timeline = session.GetTimelineProperties().ok()?;
-    let position_secs = (timeline.Position().ok()?.Duration / 10_000_000) as u64;
-    let duration_secs = (timeline.EndTime().ok()?.Duration / 10_000_000) as u64;
 
-    let now = SystemTime::now()
+    let position_ticks = timeline.Position().ok()?.Duration;
+    let duration_ticks = timeline.EndTime().ok()?.Duration;
+
+    let last_updated_filetime = timeline.LastUpdatedTime().ok()?.UniversalTime;
+
+    let last_updated_secs = (last_updated_filetime / 10_000_000) as u64 - 11_644_473_600;
+
+    let now_secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs();
 
+    let time_drift = now_secs.saturating_sub(last_updated_secs);
+    let position_secs = (position_ticks / 10_000_000) as u64;
+    let duration_secs = (duration_ticks / 10_000_000) as u64;
+    let real_position_secs = position_secs + time_drift;
+
     Some(MediaInfo {
         title,
         artist,
-        start_timestamp: now.saturating_sub(position_secs),
-        end_timestamp: now.saturating_sub(position_secs) + duration_secs,
+        start_timestamp: now_secs.saturating_sub(real_position_secs),
+        end_timestamp: now_secs.saturating_sub(real_position_secs) + duration_secs,
     })
 }
 

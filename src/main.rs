@@ -73,13 +73,13 @@ fn main() {
     let mut drpc = DiscordClient::new(1511746527125700842);
 
     drpc.on_ready(|_ctx| {
-        println!("Berhasil terhubung ke Discord Rich Presence!");
+        println!("Discord Rich Presence Connected!");
     })
     .persist();
 
     drpc.start();
 
-    println!("Menunggu koneksi ke Discord...");
+    println!("Connecting to Discord...");
     while !DiscordClient::is_ready() {
         thread::sleep(Duration::from_millis(500));
     }
@@ -88,20 +88,20 @@ fn main() {
     let mut no_media_streak = 0u32;
     let mut was_ready = false;
 
-    println!("Mulai memonitor Windows SMTC...");
+    println!("Monitoring Windows SMTC...");
 
     loop {
         let is_ready = DiscordClient::is_ready();
         // Jika Discord ditutup/disconnect, bersihkan track agar mengulang saat buka lagi
         if is_ready && !was_ready {
-            println!("Discord terdeteksi siap! Mereset status untuk sinkronisasi ulang...");
+            println!("Discord Ready! Resetting status for sync...");
             last_track.clear();
             was_ready = true;
         }
 
         if !is_ready {
             if was_ready {
-                println!("Discord terdeteksi tidak siap! Menunggu koneksi...");
+                println!("Discord Not Ready! Waiting for connection...");
                 was_ready = false;
             }
             last_track.clear();
@@ -113,7 +113,7 @@ fn main() {
             no_media_streak = 0;
 
             if media.title != last_track {
-                println!("Mendengar: {} - {}", media.title, media.artist);
+                println!("Listening: {} - {}", media.title, media.artist);
 
                 let title = media.title.clone();
                 let artist = media.artist.clone();
@@ -126,6 +126,12 @@ fn main() {
                     artist.replace(' ', "+")
                 );
 
+                let listen_url = format!(
+                    "https://music.youtube.com/search?q={}+{}",
+                    title.replace(' ', "+"),
+                    artist.replace(' ', "+"),
+                );
+
                 // Kirim Rich Presence ke Discord
                 let res = drpc.set_activity(|act| {
                     act.activity_type(ActivityType::Listening)
@@ -133,16 +139,14 @@ fn main() {
                         .state(artist)
                         .timestamps(|t| t.start(start).end(end))
                         .assets(|a| a.large_image("ytm_logo").large_text("YouTube Music"))
+                        .append_buttons(|b| b.label("Listen Along").url(listen_url))
                         .append_buttons(|b| b.label("View Artist").url(artist_url))
                 });
 
                 match res {
                     Ok(_) => last_track = media.title,
                     Err(e) => {
-                        println!(
-                            "Gagal update ke Discord, kemungkinan Discord ditutup: {:?}",
-                            e
-                        );
+                        println!("Failed to update Discord: {:?}", e);
                         // Fitur Auto-Close: Matikan program background ini jika Discord ditutup
                         last_track.clear();
                     }
@@ -151,7 +155,7 @@ fn main() {
         } else {
             no_media_streak += 1;
             if no_media_streak >= 3 && !last_track.is_empty() {
-                println!("Media berhenti. Menghapus status Discord.");
+                println!("Media stopped. Removing Discord status.");
                 let _ = drpc.clear_activity();
                 last_track.clear();
                 no_media_streak = 0;

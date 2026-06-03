@@ -1,0 +1,15 @@
+[package]
+name = "ytm_discord_rpc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Untuk interaksi dengan Windows SMTC API
+windows = { version = "0.58.0", features = [
+    "Foundation",
+    "Media_Control",
+    "Storage_Streams",
+] }
+# Untuk komunikasi dengan Discord
+discord-presence = "3.2"
+ureq = "2"

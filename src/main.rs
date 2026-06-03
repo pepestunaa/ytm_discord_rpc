@@ -24,7 +24,6 @@ fn get_current_media() -> Option<MediaInfo> {
 
     let session = manager.GetCurrentSession().ok()?;
 
-    // Hanya tampilkan saat lagu benar-benar playing
     let playback = session.GetPlaybackInfo().ok()?;
     if playback.PlaybackStatus().ok()?
         != GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing
@@ -40,7 +39,6 @@ fn get_current_media() -> Option<MediaInfo> {
         return None;
     }
 
-    // Ambil posisi dan durasi untuk progress bar Discord
     let timeline = session.GetTimelineProperties().ok()?;
 
     let position_ticks = timeline.Position().ok()?.Duration;
@@ -69,7 +67,6 @@ fn get_current_media() -> Option<MediaInfo> {
 }
 
 fn main() {
-    // Pastikan nama aplikasi di Discord Developer Portal diset ke "YouTube Music"
     let mut drpc = DiscordClient::new(1511746527125700842);
 
     drpc.on_ready(|_ctx| {
@@ -92,7 +89,6 @@ fn main() {
 
     loop {
         let is_ready = DiscordClient::is_ready();
-        // Jika Discord ditutup/disconnect, bersihkan track agar mengulang saat buka lagi
         if is_ready && !was_ready {
             println!("Discord Ready! Resetting status for sync...");
             last_track.clear();
@@ -120,7 +116,6 @@ fn main() {
                 let start = media.start_timestamp;
                 let end = media.end_timestamp;
 
-                // Membuat URL search artis otomatis
                 let artist_url = format!(
                     "https://music.youtube.com/search?q={}",
                     artist.replace(' ', "+")
@@ -147,7 +142,6 @@ fn main() {
                     Ok(_) => last_track = media.title,
                     Err(e) => {
                         println!("Failed to update Discord: {:?}", e);
-                        // Fitur Auto-Close: Matikan program background ini jika Discord ditutup
                         last_track.clear();
                     }
                 }

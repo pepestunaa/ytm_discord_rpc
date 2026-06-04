@@ -1,3 +1,5 @@
+![Alt Text](example.png)
+
 setup
 - go this [link](https://discord.com/developers/applications)
 - create a new application

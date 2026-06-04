@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"]
+// #![windows_subsystem = "windows"]
 use discord_presence::{models::ActivityType, Client as DiscordClient};
 use std::{
     thread,

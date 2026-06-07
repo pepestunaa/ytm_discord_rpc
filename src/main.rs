@@ -1,14 +1,15 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use discord_presence::{models::ActivityType, Client as DiscordClient};
+// use rand::Rng;
 use std::{
-    thread,
+    thread::{self},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use windows::Media::Control::{
     GlobalSystemMediaTransportControlsSessionManager,
     GlobalSystemMediaTransportControlsSessionPlaybackStatus,
 };
-
+#[derive(Debug)]
 struct MediaInfo {
     title: String,
     artist: String,
@@ -16,15 +17,13 @@ struct MediaInfo {
     end_timestamp: u64,
 }
 
-fn get_current_media() -> Option<MediaInfo> {
-    let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
-        .ok()?
-        .get()
-        .ok()?;
-
+fn get_current_media(
+    manager: &GlobalSystemMediaTransportControlsSessionManager,
+) -> Option<MediaInfo> {
     let session = manager.GetCurrentSession().ok()?;
 
     let playback = session.GetPlaybackInfo().ok()?;
+
     if playback.PlaybackStatus().ok()?
         != GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing
     {
@@ -81,36 +80,36 @@ fn main() {
         thread::sleep(Duration::from_millis(500));
     }
 
+    let manager = match GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
+        Ok(async_op) => match async_op.get() {
+            Ok(mgr) => mgr,
+            Err(e) => {
+                eprintln!("Failed to get SMTC Manager: {:?}", e);
+                return;
+            }
+        },
+        Err(e) => {
+            eprintln!("Failed to request SMTC Manager: {:?}", e);
+            return;
+        }
+    };
+
     let mut last_track = String::new();
-    let mut no_media_streak = 0u32;
-    let mut was_ready = false;
+    // let mut is_ready = false;
+    // let mut is_idle = false;
+    let mut current_track = String::new();
 
     println!("Monitoring Windows SMTC...");
-
     loop {
-        let is_ready = DiscordClient::is_ready();
-        if is_ready && !was_ready {
-            println!("Discord Ready! Resetting status for sync...");
-            last_track.clear();
-            was_ready = true;
-        }
-
-        if !is_ready {
-            if was_ready {
-                println!("Discord Not Ready! Waiting for connection...");
-                was_ready = false;
-            }
-            last_track.clear();
-            thread::sleep(Duration::from_millis(1000));
+        let Some(media) = get_current_media(&manager) else {
             continue;
-        }
+        };
 
-        if let Some(media) = get_current_media() {
-            no_media_streak = 0;
+        if current_track != media.title {
+            println!("Listening: {} - {}", media.title, media.artist);
+            println!("Last track: {}", last_track);
 
-            if media.title != last_track {
-                println!("Listening: {} - {}", media.title, media.artist);
-
+            if last_track != media.title {
                 let title = media.title.clone();
                 let artist = media.artist.clone();
                 let start = media.start_timestamp;
@@ -127,35 +126,96 @@ fn main() {
                     artist.replace(' ', "+"),
                 );
 
-                // Kirim Rich Presence ke Discord
                 let res = drpc.set_activity(|act| {
                     act.activity_type(ActivityType::Listening)
                         .details(title)
                         .state(artist)
                         .timestamps(|t| t.start(start).end(end))
-                        .assets(|a| a.large_image("ytm_logo").large_text("YouTube Music"))
+                        .assets(|a| {
+                            a.large_image("ytm_logo")
+                                .large_text("YouTube Music")
+                                .small_image("1")
+                                .small_text("Bcurretnt_track")
+                        })
                         .append_buttons(|b| b.label("Listen Along").url(listen_url))
                         .append_buttons(|b| b.label("View Artist").url(artist_url))
                 });
-
-                match res {
-                    Ok(_) => last_track = media.title,
-                    Err(e) => {
-                        println!("Failed to update Discord: {:?}", e);
-                        last_track.clear();
-                    }
-                }
+                res.ok();
             }
-        } else {
-            no_media_streak += 1;
-            if no_media_streak >= 3 && !last_track.is_empty() {
-                println!("Media stopped. Removing Discord status.");
-                let _ = drpc.clear_activity();
-                last_track.clear();
-                no_media_streak = 0;
-            }
+            last_track = media.title.clone();
         }
-
-        thread::sleep(Duration::from_secs(5));
+        current_track = media.title.clone();
+        thread::sleep(Duration::from_millis(500));
     }
+    // while let Some(media) = get_current_media(&manager) {
+    //     if media.title != current_track {
+    //         current_track = media.title.clone();
+    //         let is_ready = DiscordClient::is_ready();
+    //         if is_ready && !was_ready {
+    //             println!("Discord Ready! Resetting status for sync...");
+    //             last_track.clear();
+    //             was_ready = true;
+    //         }
+
+    //         if media.title != last_track {
+    //             println!("Listening: {} - {}", media.title, media.artist);
+    //             last_track = media.title.clone();
+
+    //             let title = media.title.clone();
+    //             let artist = media.artist.clone();
+    //             let start = media.start_timestamp;
+    //             let end = media.end_timestamp;
+
+    //             let artist_url = format!(
+    //                 "https://music.youtube.com/search?q={}",
+    //                 artist.replace(' ', "+")
+    //             );
+
+    //             let listen_url = format!(
+    //                 "https://music.youtube.com/search?q={}+{}",
+    //                 title.replace(' ', "+"),
+    //                 artist.replace(' ', "+"),
+    //             );
+
+    //             let res = drpc.set_activity(|act| {
+    //                 act.activity_type(ActivityType::Listening)
+    //                     .details(title)
+    //                     .state(artist)
+    //                     .timestamps(|t| t.start(start).end(end))
+    //                     .assets(|a| {
+    //                         a.large_image("ytm_logo")
+    //                             .large_text("YouTube Music")
+    //                             .small_image("waa")
+    //                             .small_text("Bub")
+    //                     })
+    //                     .append_buttons(|b| b.label("Listen Along").url(listen_url))
+    //                     .append_buttons(|b| b.label("View Artist").url(artist_url))
+    //             });
+
+    //             match res {
+    //                 Ok(_) => last_track = media.title,
+    //                 Err(e) => {
+    //                     println!("Failed to update Discord: {:?}", e);
+    //                     last_track.clear();
+    //                 }
+    //             }
+    //         }
+    //     } else {
+    //         if !is_idle {
+    //             println!("No media playing. Setting status to Idle.");
+    //             // Kirim status Idle ke Discord
+    //             let res = drpc.set_activity(|act| {
+    //                 act.activity_type(ActivityType::Playing) // Bisa diganti Playing / Competing
+    //                     .details("Idling")
+    //                     .state("Chilling / No music playing")
+    //                     .assets(|a| a.large_image("ytm_logo").large_text("Sleeptime"))
+    //             });
+
+    //             if res.is_ok() {
+    //                 last_track.clear(); // Bersihkan track terakhir
+    //                 is_idle = true;
+    //             }
+    //         }
+    //     }
+    // }
 }

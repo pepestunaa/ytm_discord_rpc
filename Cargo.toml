@@ -12,3 +12,4 @@ windows = { version = "0.58.0", features = [
 ] }
 # Untuk komunikasi dengan Discord
 discord-presence = "3.2"
+# rand = "0.8.5"

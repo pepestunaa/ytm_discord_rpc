@@ -1,6 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use discord_presence::{models::ActivityType, Client as DiscordClient};
-// use rand::Rng;
 use std::{
     thread::{self},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -15,6 +14,7 @@ struct MediaInfo {
     artist: String,
     start_timestamp: u64,
     end_timestamp: u64,
+    status: GlobalSystemMediaTransportControlsSessionPlaybackStatus,
 }
 
 fn get_current_media(
@@ -23,12 +23,6 @@ fn get_current_media(
     let session = manager.GetCurrentSession().ok()?;
 
     let playback = session.GetPlaybackInfo().ok()?;
-
-    if playback.PlaybackStatus().ok()?
-        != GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing
-    {
-        return None;
-    }
 
     let props = session.TryGetMediaPropertiesAsync().ok()?.get().ok()?;
     let title = props.Title().ok()?.to_string();
@@ -57,11 +51,14 @@ fn get_current_media(
     let duration_secs = (duration_ticks / 10_000_000) as u64;
     let real_position_secs = position_secs + time_drift;
 
+    let status = playback.PlaybackStatus().ok()?;
+
     Some(MediaInfo {
         title,
         artist,
         start_timestamp: now_secs.saturating_sub(real_position_secs),
         end_timestamp: now_secs.saturating_sub(real_position_secs) + duration_secs,
+        status,
     })
 }
 
@@ -95,127 +92,72 @@ fn main() {
     };
 
     let mut last_track = String::new();
-    // let mut is_ready = false;
-    // let mut is_idle = false;
+    let mut is_idle = false;
     let mut current_track = String::new();
 
     println!("Monitoring Windows SMTC...");
+
     loop {
         let Some(media) = get_current_media(&manager) else {
+            thread::sleep(Duration::from_millis(500));
             continue;
         };
-
         if current_track != media.title {
             println!("Listening: {} - {}", media.title, media.artist);
             println!("Last track: {}", last_track);
-
-            if last_track != media.title {
-                let title = media.title.clone();
-                let artist = media.artist.clone();
-                let start = media.start_timestamp;
-                let end = media.end_timestamp;
-
-                let artist_url = format!(
-                    "https://music.youtube.com/search?q={}",
-                    artist.replace(' ', "+")
-                );
-
-                let listen_url = format!(
-                    "https://music.youtube.com/search?q={}+{}",
-                    title.replace(' ', "+"),
-                    artist.replace(' ', "+"),
-                );
-
-                let res = drpc.set_activity(|act| {
-                    act.activity_type(ActivityType::Listening)
-                        .details(title)
-                        .state(artist)
-                        .timestamps(|t| t.start(start).end(end))
-                        .assets(|a| {
-                            a.large_image("ytm_logo")
-                                .large_text("YouTube Music")
-                                .small_image("1")
-                                .small_text("Bcurretnt_track")
-                        })
-                        .append_buttons(|b| b.label("Listen Along").url(listen_url))
-                        .append_buttons(|b| b.label("View Artist").url(artist_url))
-                });
-                res.ok();
-            }
             last_track = media.title.clone();
+            current_track = media.title.clone();
+            is_idle = false;
         }
-        current_track = media.title.clone();
-        thread::sleep(Duration::from_millis(500));
+
+        if media.status != GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
+            if !is_idle {
+                println!("No media playing. Setting status to Idle.");
+                let res = drpc.set_activity(|act| {
+                    act.activity_type(ActivityType::Playing)
+                        .details("Idling")
+                        .state("Chilling / No music playing")
+                        .assets(|a| a.large_image("ytm_logo").large_text("Sleeptime"))
+                });
+
+                if res.is_ok() {
+                    last_track.clear();
+                    is_idle = true;
+                }
+            }
+            continue;
+        }
+        
+        let title = media.title.clone();
+        let artist = media.artist.clone();
+        let start = media.start_timestamp;
+        let end = media.end_timestamp;
+
+        let artist_url = format!(
+            "https://music.youtube.com/search?q={}",
+            artist.replace(' ', "+")
+        );
+
+        let listen_url = format!(
+            "https://music.youtube.com/search?q={}+{}",
+            title.replace(' ', "+"),
+            artist.replace(' ', "+"),
+        );
+
+        let res = drpc.set_activity(|act| {
+            act.activity_type(ActivityType::Listening)
+                .details(title)
+                .state(artist)
+                .timestamps(|t| t.start(start).end(end))
+                .assets(|a| {
+                    a.large_image("ytm_logo")
+                        .large_text("YouTube Music")
+                        .small_image("1")
+                        .small_text("Bcurretnt_track")
+                })
+                .append_buttons(|b| b.label("Listen Along").url(listen_url))
+                .append_buttons(|b| b.label("View Artist").url(artist_url))
+        });
+        res.ok();
     }
-    // while let Some(media) = get_current_media(&manager) {
-    //     if media.title != current_track {
-    //         current_track = media.title.clone();
-    //         let is_ready = DiscordClient::is_ready();
-    //         if is_ready && !was_ready {
-    //             println!("Discord Ready! Resetting status for sync...");
-    //             last_track.clear();
-    //             was_ready = true;
-    //         }
-
-    //         if media.title != last_track {
-    //             println!("Listening: {} - {}", media.title, media.artist);
-    //             last_track = media.title.clone();
-
-    //             let title = media.title.clone();
-    //             let artist = media.artist.clone();
-    //             let start = media.start_timestamp;
-    //             let end = media.end_timestamp;
-
-    //             let artist_url = format!(
-    //                 "https://music.youtube.com/search?q={}",
-    //                 artist.replace(' ', "+")
-    //             );
-
-    //             let listen_url = format!(
-    //                 "https://music.youtube.com/search?q={}+{}",
-    //                 title.replace(' ', "+"),
-    //                 artist.replace(' ', "+"),
-    //             );
-
-    //             let res = drpc.set_activity(|act| {
-    //                 act.activity_type(ActivityType::Listening)
-    //                     .details(title)
-    //                     .state(artist)
-    //                     .timestamps(|t| t.start(start).end(end))
-    //                     .assets(|a| {
-    //                         a.large_image("ytm_logo")
-    //                             .large_text("YouTube Music")
-    //                             .small_image("waa")
-    //                             .small_text("Bub")
-    //                     })
-    //                     .append_buttons(|b| b.label("Listen Along").url(listen_url))
-    //                     .append_buttons(|b| b.label("View Artist").url(artist_url))
-    //             });
-
-    //             match res {
-    //                 Ok(_) => last_track = media.title,
-    //                 Err(e) => {
-    //                     println!("Failed to update Discord: {:?}", e);
-    //                     last_track.clear();
-    //                 }
-    //             }
-    //         }
-    //     } else {
-    //         if !is_idle {
-    //             println!("No media playing. Setting status to Idle.");
-    //             // Kirim status Idle ke Discord
-    //             let res = drpc.set_activity(|act| {
-    //                 act.activity_type(ActivityType::Playing) // Bisa diganti Playing / Competing
-    //                     .details("Idling")
-    //                     .state("Chilling / No music playing")
-    //                     .assets(|a| a.large_image("ytm_logo").large_text("Sleeptime"))
-    //             });
-
-    //             if res.is_ok() {
-    //                 last_track.clear(); // Bersihkan track terakhir
-    //                 is_idle = true;
-    //             }
-    //         }
-    //     }
-    // }
 }

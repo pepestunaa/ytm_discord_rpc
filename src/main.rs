@@ -7,7 +7,7 @@ use std::{
 use urlencoding::encode;
 use windows::{
     Media::Control::GlobalSystemMediaTransportControlsSessionManager,
-    Win32::Foundation::D2DERR_TEXT_RENDERER_NOT_RELEASED,
+    // Win32::Foundation::D2DERR_TEXT_RENDERER_NOT_RELEASED,
 };
 
 #[derive(Debug)]

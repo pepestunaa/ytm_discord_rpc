@@ -4,10 +4,12 @@ use std::{
     thread::{self},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use windows::Media::Control::{
-    GlobalSystemMediaTransportControlsSessionManager,
-    // GlobalSystemMediaTransportControlsSessionPlaybackStatus,
+use urlencoding::encode;
+use windows::{
+    Media::Control::GlobalSystemMediaTransportControlsSessionManager,
+    Win32::Foundation::D2DERR_TEXT_RENDERER_NOT_RELEASED,
 };
+
 #[derive(Debug)]
 struct MediaInfo {
     title: String,
@@ -62,7 +64,21 @@ fn get_current_media() -> Option<MediaInfo> {
         // status,
     })
 }
-
+fn format_media_str(text: &str) -> String {
+    let mut s = text.trim().to_string();
+    if s.is_empty() {
+        return "Unknown text".to_string();
+    }
+    if s.chars().count() < 2 {
+        s.push(' ');
+    }
+    if s.chars().count() > 128 {
+        let mut truncated: String = s.chars().take(125).collect();
+        truncated.push_str("...");
+        return truncated;
+    }
+    s
+}
 fn main() {
     let mut drpc = DiscordClient::new(1511746527125700842);
     drpc.on_ready(|_ctx| {
@@ -75,6 +91,8 @@ fn main() {
         thread::sleep(Duration::from_millis(500));
     }
     let mut current_track = String::new();
+    let mut current_start = None;
+    let mut needs_update = true;
     println!("Monitoring Windows SMTC...");
     thread::sleep(Duration::from_millis(500));
     loop {
@@ -83,41 +101,55 @@ fn main() {
             thread::sleep(Duration::from_millis(500));
             continue;
         };
-        if current_track != media.title {
+        if current_track != media.title || current_start != Some(media.start_timestamp) {
             println!("Listening: {} - {}", media.title, media.artist);
             current_track = media.title.clone();
+            current_start = Some(media.start_timestamp);
+            needs_update = true;
         }
-        let title = media.title;
-        let artist = media.artist;
-        let start = media.start_timestamp;
-        let end = media.end_timestamp;
-        let artist_url = format!(
-            "https://music.youtube.com/search?q={}",
-            artist.replace(' ', "+")
-        );
-        let listen_url = format!(
-            "https://music.youtube.com/search?q={}+{}",
-            title.replace(' ', "+"),
-            artist.replace(' ', "+"),
-        );
-        let res = drpc.set_activity(|act| {
-            act.activity_type(ActivityType::Listening)
-                .details(title)
-                .state(artist)
-                .timestamps(|t| t.start(start).end(end))
-                .assets(|a| {
-                    a.large_image("ytm_logo")
-                        // .large_text("YouTube Music")
-                        .small_image("1")
-                        .small_text("Bub")
-                })
-                .append_buttons(|b| b.label("Listen Along").url(listen_url))
-                .append_buttons(|b| b.label("View Artist").url(artist_url))
-        });
-        println!("a");
-        if let Err(e) = res {
-            eprintln!("Gagal set activity: {}", e);
+        if needs_update {
+            let title = format_media_str(&media.title);
+            let artist = format_media_str(&media.artist);
+            let start = media.start_timestamp;
+            let end = media.end_timestamp;
+            let search_artist = format!("{}", artist);
+            let search_listen = format!("{} {}", title, artist);
+
+            let artist_url = format!(
+                "https://music.youtube.com/search?q={}",
+                encode(&search_artist)
+            );
+
+            let listen_url = format!(
+                "https://music.youtube.com/search?q={}",
+                encode(&search_listen)
+            );
+            let res = drpc.set_activity(|act| {
+                act.activity_type(ActivityType::Listening)
+                    .details(&title)
+                    .state(&artist)
+                    .timestamps(|t| t.start(start).end(end))
+                    .assets(|a| {
+                        a.large_image("ytm_logo")
+                            // .large_text("YouTube Music")
+                            .small_image("1")
+                            .small_text("Bub")
+                    })
+                    .append_buttons(|b| b.label("Listen Along").url(listen_url))
+                    .append_buttons(|b| b.label("View Artist").url(artist_url))
+            });
+            match res {
+                Ok(_) => {
+                    println!("a");
+                    needs_update = false;
+                }
+                Err(e) => {
+                    eprintln!("Failed to set activity: {}", e);
+                }
+            }
+            thread::sleep(Duration::from_secs(10));
         }
-        thread::sleep(Duration::from_secs(5));
+        println!("b");
+        thread::sleep(Duration::from_secs(10));
     }
 }

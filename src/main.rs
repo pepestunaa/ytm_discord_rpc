@@ -1,10 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use discord_presence::{models::ActivityType, Client as DiscordClient};
+use std::env;
 use std::{
     thread::{self},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use urlencoding::encode;
+use winreg::enums::*;
+use winreg::RegKey;
+
 use windows::{
     Media::Control::GlobalSystemMediaTransportControlsSessionManager,
     // Win32::Foundation::D2DERR_TEXT_RENDERER_NOT_RELEASED,
@@ -79,7 +83,19 @@ fn format_media_str(text: &str) -> String {
     }
     s
 }
+fn add_to_startup() {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let path = r#"Software\Microsoft\Windows\CurrentVersion\Run"#;
+
+    if let Ok(key) = hkcu.open_subkey_with_flags(path, KEY_SET_VALUE) {
+        if let Ok(exe_path) = env::current_exe() {
+            let exe_path_str = exe_path.to_string_lossy().into_owned();
+            let _ = key.set_value("hoho_discord_rpc", &exe_path_str);
+        }
+    }
+}
 fn main() {
+    add_to_startup();
     let mut drpc = DiscordClient::new(1511746527125700842);
     drpc.on_ready(|_ctx| {
         println!("Discord Rich Presence Connected!");

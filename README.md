@@ -1,6 +1,8 @@
 ![Alt Text](example.png)
 
-setup
+you can install this on release tab or this [link](https://github.com/pepestunaa/ytm_discord_rpc/releases/download/0.0.1/ytm_discord_rpc.exe) also if something trouble after instalation you can end task ytm_discord_rps.exe in task manager thx
+
+setup this if you want customize your rpc
 - go this [link](https://discord.com/developers/applications)
 - create a new application
 - copy the client ID

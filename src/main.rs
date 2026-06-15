@@ -65,95 +65,41 @@ fn get_current_media() -> Option<MediaInfo> {
 
 fn main() {
     let mut drpc = DiscordClient::new(1511746527125700842);
-
     drpc.on_ready(|_ctx| {
         println!("Discord Rich Presence Connected!");
     })
     .persist();
-
     drpc.start();
-
     println!("Connecting to Discord...");
     while !DiscordClient::is_ready() {
         thread::sleep(Duration::from_millis(500));
     }
-
-    // let manager = match GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
-    //     Ok(async_op) => match async_op.get() {
-    //         Ok(mgr) => mgr,
-    //         Err(e) => {
-    //             eprintln!("Failed to get SMTC Manager: {:?}", e);
-    //             return;
-    //         }
-    //     },
-    //     Err(e) => {
-    //         eprintln!("Failed to request SMTC Manager: {:?}", e);
-    //         return;
-    //     }
-    // };
-
-    // let mut last_track = String::new();
-    // let mut is_idle = false;
     let mut current_track = String::new();
-
     println!("Monitoring Windows SMTC...");
-
     thread::sleep(Duration::from_millis(500));
     loop {
-        // let Some(media) = get_current_media(&manager) else {
-        //     thread::sleep(Duration::from_millis(500));
-        //     continue;
-        // };
-
-        let media = match get_current_media() {
-            Some(media) => media,
-            None => {
-                thread::sleep(Duration::from_millis(500));
-                continue;
-            }
+        thread::sleep(Duration::from_millis(500));
+        let Some(media) = get_current_media() else {
+            thread::sleep(Duration::from_millis(500));
+            continue;
         };
         if current_track != media.title {
             println!("Listening: {} - {}", media.title, media.artist);
-            // println!("Last track: {}", last_track);
-            // last_track = media.title.clone();
             current_track = media.title.clone();
-            // is_idle = false;
         }
-
-        // if media.status != GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
-        //     if !is_idle {
-        //         println!("No media playing. Setting status to Idle.");
-        //         let res = drpc.set_activity(|act| {
-        //             act.activity_type(ActivityType::Playing)
-        //                 .details("Idling")
-        //                 .state("Chilling / No music playing")
-        //                 .assets(|a| a.large_image("ytm_logo").large_text("Sleeptime"))
-        //         });
-
-        //         if res.is_ok() {
-        //             last_track.clear();
-        //             is_idle = true;
-        //         }
-        //     }
-        //     continue;
-        // }
-
         let title = media.title;
         let artist = media.artist;
         let start = media.start_timestamp;
         let end = media.end_timestamp;
-
         let artist_url = format!(
             "https://music.youtube.com/search?q={}",
             artist.replace(' ', "+")
         );
-
         let listen_url = format!(
             "https://music.youtube.com/search?q={}+{}",
             title.replace(' ', "+"),
             artist.replace(' ', "+"),
         );
-
         let res = drpc.set_activity(|act| {
             act.activity_type(ActivityType::Listening)
                 .details(title)
@@ -168,7 +114,10 @@ fn main() {
                 .append_buttons(|b| b.label("Listen Along").url(listen_url))
                 .append_buttons(|b| b.label("View Artist").url(artist_url))
         });
-        res.ok();
+        println!("a");
+        if let Err(e) = res {
+            eprintln!("Gagal set activity: {}", e);
+        }
         thread::sleep(Duration::from_secs(5));
     }
 }

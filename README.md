@@ -1,6 +1,6 @@
 ![Alt Text](example.png)
 
-
+you can install this on release tab also if somethimng trouble after instalation you can end task ytm_discord_rps.exe in task manager
 
 setup this if you want customize your rpc
 - go this [link](https://discord.com/developers/applications)

@@ -140,7 +140,7 @@ fn main() {
             });
             match res {
                 Ok(_) => {
-                    println!("a");
+                    // println!("a");
                     needs_update = false;
                 }
                 Err(e) => {
@@ -149,7 +149,7 @@ fn main() {
             }
             thread::sleep(Duration::from_secs(10));
         }
-        println!("b");
+        // println!("b");
         thread::sleep(Duration::from_secs(10));
     }
 }

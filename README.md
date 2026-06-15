@@ -1,6 +1,8 @@
 ![Alt Text](example.png)
 
-setup
+
+
+setup this if you want customize your rpc
 - go this [link](https://discord.com/developers/applications)
 - create a new application
 - copy the client ID

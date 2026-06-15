@@ -6,7 +6,7 @@ use std::{
 };
 use windows::Media::Control::{
     GlobalSystemMediaTransportControlsSessionManager,
-    GlobalSystemMediaTransportControlsSessionPlaybackStatus,
+    // GlobalSystemMediaTransportControlsSessionPlaybackStatus,
 };
 #[derive(Debug)]
 struct MediaInfo {
@@ -14,15 +14,16 @@ struct MediaInfo {
     artist: String,
     start_timestamp: u64,
     end_timestamp: u64,
-    status: GlobalSystemMediaTransportControlsSessionPlaybackStatus,
+    // status: GlobalSystemMediaTransportControlsSessionPlaybackStatus,
 }
-
-fn get_current_media(
-    manager: &GlobalSystemMediaTransportControlsSessionManager,
-) -> Option<MediaInfo> {
+fn get_current_media() -> Option<MediaInfo> {
+    let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
+        .ok()?
+        .get()
+        .ok()?;
     let session = manager.GetCurrentSession().ok()?;
 
-    let playback = session.GetPlaybackInfo().ok()?;
+    // let playback = session.GetPlaybackInfo().ok()?;
 
     let props = session.TryGetMediaPropertiesAsync().ok()?.get().ok()?;
     let title = props.Title().ok()?.to_string();
@@ -51,14 +52,14 @@ fn get_current_media(
     let duration_secs = (duration_ticks / 10_000_000) as u64;
     let real_position_secs = position_secs + time_drift;
 
-    let status = playback.PlaybackStatus().ok()?;
+    // let status = playback.PlaybackStatus().ok()?;
 
     Some(MediaInfo {
         title,
         artist,
         start_timestamp: now_secs.saturating_sub(real_position_secs),
         end_timestamp: now_secs.saturating_sub(real_position_secs) + duration_secs,
-        status,
+        // status,
     })
 }
 
@@ -77,59 +78,68 @@ fn main() {
         thread::sleep(Duration::from_millis(500));
     }
 
-    let manager = match GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
-        Ok(async_op) => match async_op.get() {
-            Ok(mgr) => mgr,
-            Err(e) => {
-                eprintln!("Failed to get SMTC Manager: {:?}", e);
-                return;
-            }
-        },
-        Err(e) => {
-            eprintln!("Failed to request SMTC Manager: {:?}", e);
-            return;
-        }
-    };
+    // let manager = match GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
+    //     Ok(async_op) => match async_op.get() {
+    //         Ok(mgr) => mgr,
+    //         Err(e) => {
+    //             eprintln!("Failed to get SMTC Manager: {:?}", e);
+    //             return;
+    //         }
+    //     },
+    //     Err(e) => {
+    //         eprintln!("Failed to request SMTC Manager: {:?}", e);
+    //         return;
+    //     }
+    // };
 
-    let mut last_track = String::new();
-    let mut is_idle = false;
+    // let mut last_track = String::new();
+    // let mut is_idle = false;
     let mut current_track = String::new();
 
     println!("Monitoring Windows SMTC...");
 
+    thread::sleep(Duration::from_millis(500));
     loop {
-        let Some(media) = get_current_media(&manager) else {
-            thread::sleep(Duration::from_millis(500));
-            continue;
+        // let Some(media) = get_current_media(&manager) else {
+        //     thread::sleep(Duration::from_millis(500));
+        //     continue;
+        // };
+
+        let media = match get_current_media() {
+            Some(media) => media,
+            None => {
+                thread::sleep(Duration::from_millis(500));
+                continue;
+            }
         };
         if current_track != media.title {
             println!("Listening: {} - {}", media.title, media.artist);
-            println!("Last track: {}", last_track);
-            last_track = media.title.clone();
+            // println!("Last track: {}", last_track);
+            // last_track = media.title.clone();
             current_track = media.title.clone();
-            is_idle = false;
+            // is_idle = false;
         }
 
-        if media.status != GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
-            if !is_idle {
-                println!("No media playing. Setting status to Idle.");
-                let res = drpc.set_activity(|act| {
-                    act.activity_type(ActivityType::Playing)
-                        .details("Idling")
-                        .state("Chilling / No music playing")
-                        .assets(|a| a.large_image("ytm_logo").large_text("Sleeptime"))
-                });
+        // if media.status != GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
+        //     if !is_idle {
+        //         println!("No media playing. Setting status to Idle.");
+        //         let res = drpc.set_activity(|act| {
+        //             act.activity_type(ActivityType::Playing)
+        //                 .details("Idling")
+        //                 .state("Chilling / No music playing")
+        //                 .assets(|a| a.large_image("ytm_logo").large_text("Sleeptime"))
+        //         });
 
-                if res.is_ok() {
-                    last_track.clear();
-                    is_idle = true;
-                }
-            }
-            continue;
-        }
-        
-        let title = media.title.clone();
-        let artist = media.artist.clone();
+        //         if res.is_ok() {
+        //             last_track.clear();
+        //             is_idle = true;
+        //         }
+        //     }
+        //     continue;
+        // }
+
+        let title = media.title;
+        let artist = media.artist;
         let start = media.start_timestamp;
         let end = media.end_timestamp;
 
@@ -151,13 +161,14 @@ fn main() {
                 .timestamps(|t| t.start(start).end(end))
                 .assets(|a| {
                     a.large_image("ytm_logo")
-                        .large_text("YouTube Music")
+                        // .large_text("YouTube Music")
                         .small_image("1")
-                        .small_text("Bcurretnt_track")
+                        .small_text("Bub")
                 })
                 .append_buttons(|b| b.label("Listen Along").url(listen_url))
                 .append_buttons(|b| b.label("View Artist").url(artist_url))
         });
         res.ok();
+        thread::sleep(Duration::from_secs(5));
     }
 }

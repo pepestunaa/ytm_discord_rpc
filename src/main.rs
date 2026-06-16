@@ -1,6 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use discord_presence::{models::ActivityType, Client as DiscordClient};
-use std::env;
+use lru::LruCache;
+use serde::Deserialize;
+use std::num::NonZeroUsize;
+use std::{env, time};
 use std::{
     thread::{self},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -9,9 +12,9 @@ use urlencoding::encode;
 use winreg::enums::*;
 use winreg::RegKey;
 
-use windows::{
-    Media::Control::GlobalSystemMediaTransportControlsSessionManager,
-    // Win32::Foundation::D2DERR_TEXT_RENDERER_NOT_RELEASED,
+use windows::Media::Control::{
+    GlobalSystemMediaTransportControlsSessionManager,
+    GlobalSystemMediaTransportControlsSessionPlaybackStatus,
 };
 
 #[derive(Debug)]
@@ -20,7 +23,7 @@ struct MediaInfo {
     artist: String,
     start_timestamp: u64,
     end_timestamp: u64,
-    // status: GlobalSystemMediaTransportControlsSessionPlaybackStatus,
+    is_playing: bool,
 }
 fn get_current_media() -> Option<MediaInfo> {
     let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
@@ -29,7 +32,9 @@ fn get_current_media() -> Option<MediaInfo> {
         .ok()?;
     let session = manager.GetCurrentSession().ok()?;
 
-    // let playback = session.GetPlaybackInfo().ok()?;
+    let playback = session.GetPlaybackInfo().ok()?;
+    let status = playback.PlaybackStatus().ok()?;
+    let is_playing = status == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing;
 
     let props = session.TryGetMediaPropertiesAsync().ok()?.get().ok()?;
     let title = props.Title().ok()?.to_string();
@@ -58,14 +63,12 @@ fn get_current_media() -> Option<MediaInfo> {
     let duration_secs = (duration_ticks / 10_000_000) as u64;
     let real_position_secs = position_secs + time_drift;
 
-    // let status = playback.PlaybackStatus().ok()?;
-
     Some(MediaInfo {
         title,
         artist,
         start_timestamp: now_secs.saturating_sub(real_position_secs),
         end_timestamp: now_secs.saturating_sub(real_position_secs) + duration_secs,
-        // status,
+        is_playing,
     })
 }
 fn format_media_str(text: &str) -> String {
@@ -83,6 +86,42 @@ fn format_media_str(text: &str) -> String {
     }
     s
 }
+
+#[derive(Deserialize)]
+struct ItunesResponse {
+    results: Vec<ItunesTrack>,
+}
+
+#[derive(Deserialize)]
+struct ItunesTrack {
+    #[serde(rename = "artworkUrl100")]
+    artwork_url_100: Option<String>,
+}
+
+fn get_album_art_url(title: &str, artist: &str) -> Option<String> {
+    let query = format!("{} {}", title, artist);
+    let url = format!(
+        "https://itunes.apple.com/search?term={}&media=music&limit=1",
+        encode(&query)
+    );
+
+    let body = ureq::get(&url)
+        .timeout(time::Duration::from_secs(5))
+        .call()
+        .ok()?
+        .into_string()
+        .ok()?;
+
+    let result: ItunesResponse = serde_json::from_str(&body).ok()?;
+
+    result
+        .results
+        .first()?
+        .artwork_url_100
+        .as_ref()
+        .map(|url| url.replace("100x100bb", "512x512bb"))
+}
+
 fn add_to_startup() {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let path = r#"Software\Microsoft\Windows\CurrentVersion\Run"#;
@@ -90,7 +129,7 @@ fn add_to_startup() {
     if let Ok(key) = hkcu.open_subkey_with_flags(path, KEY_SET_VALUE) {
         if let Ok(exe_path) = env::current_exe() {
             let exe_path_str = exe_path.to_string_lossy().into_owned();
-            let _ = key.set_value("hoho_discord_rpc", &exe_path_str);
+            let _ = key.set_value("ytm_discord_rpc", &exe_path_str);
         }
     }
 }
@@ -109,14 +148,39 @@ fn main() {
     let mut current_track = String::new();
     let mut current_start = None;
     let mut needs_update = true;
+    let mut is_idle = false;
+    let mut art_cache: LruCache<String, Option<String>> =
+        LruCache::new(NonZeroUsize::new(20).unwrap());
     println!("Monitoring Windows SMTC...");
-    thread::sleep(Duration::from_millis(500));
     loop {
         thread::sleep(Duration::from_millis(500));
         let Some(media) = get_current_media() else {
-            thread::sleep(Duration::from_millis(500));
+            // No media session at all — clear activity
+            if !is_idle {
+                println!("No media session found. Clearing activity.");
+                let _ = drpc.clear_activity();
+                is_idle = true;
+            }
             continue;
         };
+
+        // If music is paused or stopped, clear the activity
+        if !media.is_playing {
+            if !is_idle {
+                println!("Music paused/stopped. Clearing activity.");
+                let _ = drpc.clear_activity();
+                is_idle = true;
+            }
+            continue;
+        }
+
+        // Music is playing — restore activity if needed
+        if is_idle {
+            println!("Music resumed. Restoring activity.");
+            is_idle = false;
+            needs_update = true;
+        }
+
         if current_track != media.title || current_start != Some(media.start_timestamp) {
             println!("Listening: {} - {}", media.title, media.artist);
             current_track = media.title.clone();
@@ -130,6 +194,23 @@ fn main() {
             let end = media.end_timestamp;
             let search_artist = format!("{}", artist);
             let search_listen = format!("{} {}", title, artist);
+
+            // Fetch album art (with cache)
+            let cache_key = format!("{}|{}", title, artist);
+            let thumbnail_url = if let Some(cached) = art_cache.get(&cache_key) {
+                cached
+                    .clone()
+                    .unwrap_or_else(|| "https://c.tenor.com/1gdoP8gQoqoAAAAC/tenor.gif".to_string())
+            } else {
+                // println!("Fetching album art for: {} - {}", title, artist);
+                let art = get_album_art_url(&title, &artist);
+                art_cache.put(cache_key.clone(), art.clone());
+                // match &art {
+                //     Some(url) => println!("Album art found: {}", url),
+                //     None => println!("No album art found, using default logo"),
+                // }
+                art.unwrap_or_else(|| "https://c.tenor.com/1gdoP8gQoqoAAAAC/tenor.gif".to_string())
+            };
 
             let artist_url = format!(
                 "https://music.youtube.com/search?q={}",
@@ -146,9 +227,9 @@ fn main() {
                     .state(&artist)
                     .timestamps(|t| t.start(start).end(end))
                     .assets(|a| {
-                        a.large_image("ytm_logo")
-                            // .large_text("YouTube Music")
-                            .small_image("1")
+                        a.large_image(&thumbnail_url)
+                            .large_text("YouTube Music")
+                            .small_image("https://c.tenor.com/I0IYOKVklREAAAAC/tenor.gif")
                             .small_text("Bub")
                     })
                     .append_buttons(|b| b.label("Listen Along").url(listen_url))
@@ -156,7 +237,7 @@ fn main() {
             });
             match res {
                 Ok(_) => {
-                    // println!("a");
+                    println!("a");
                     needs_update = false;
                 }
                 Err(e) => {
@@ -165,7 +246,7 @@ fn main() {
             }
             thread::sleep(Duration::from_secs(10));
         }
-        // println!("b");
+        println!("b");
         thread::sleep(Duration::from_secs(10));
     }
 }

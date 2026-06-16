@@ -1,4 +1,4 @@
-![Alt Text](example.png)
+![Alt Text](example.png?v=2)
 
 you can install this on release tab or this [link](https://github.com/pepestunaa/ytm_discord_rpc/releases/download/0.0.1/ytm_discord_rpc.exe) also if something trouble after instalation you can end task ytm_discord_rpc.exe and remove from startup in task manager thx
 
